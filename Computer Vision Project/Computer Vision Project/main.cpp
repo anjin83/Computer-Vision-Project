@@ -14,14 +14,17 @@ using namespace cv;
 
 using namespace std;
 
+vector<Mat> find_descriptors(vector<Mat> image_vector);
+int best_template_match(Mat feature_descriptor, vector<Mat> template_vector_descriptors);
+
 int main(int argc, char **argv) {
 
+	//Get image to parse as command line argument
 	CommandLineParser parser(argc, argv, "{help h||}{ @image | ../data/baboon.jpg | }");
 
+	//Assign image to Mat 
 	Mat src;
-
 	string filename = parser.get<string>("@image");
-
 	if ((src = imread(filename, IMREAD_COLOR)).empty())
 
 	{
@@ -32,40 +35,31 @@ int main(int argc, char **argv) {
 
 	}
 
+	//Get rid of alphas in image
 	Mat gray, thresh, smooth, morph;
-
 	cvtColor(src, src, COLOR_BGRA2BGR);
 
 	cout << "Number of input channels=" << src.channels();
 
+	//Create grayscale image and blur for feature
 	bilateralFilter(src, smooth, 9, 30, 30);
-
 	cvtColor(smooth, gray, COLOR_BGR2GRAY);
-
 	GaussianBlur(gray, gray, Size(5, 3), 1.5);
+	adaptiveThreshold(gray, thresh, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 11, 2);
 
-	adaptiveThreshold(gray, thresh, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY
-
-		, 11, 2);
-
+	//Find important features in image
 	threshold(gray, thresh, 50, 255, THRESH_BINARY + THRESH_OTSU);
-
 	Mat kernel = getStructuringElement(MORPH_RECT, Size(25, 9));
-
 	//morphologyEx(thresh, morph, MORPH_CLOSE, kernel);
-
 	morphologyEx(thresh, morph, MORPH_OPEN, kernel);
 
 	//
-
 	Ptr<MSER> ms = MSER::create();
-
 	vector<vector<Point> > regions;
-
 	vector<Rect> mser_boundingbox;
-
 	vector<Mat> license_characters;
 
+	//Load template images into array
 	vector<String> fn;
 	glob("C:/Users/barkas2/Desktop/Program 3/Program 3/Program 3/characters/*.jpg", fn, false);
 
@@ -76,9 +70,9 @@ int main(int argc, char **argv) {
 		template_vector.push_back(imread(fn[i]));
 	}
 
+	//Find regions that could contain license plate
 	ms->detectRegions(thresh, regions, mser_boundingbox);
-
-	
+		
 	//Filter out all boundingboxes outside of ratio threshold to get license numbers
 	for(auto it = mser_boundingbox.begin(); it != mser_boundingbox.end();)
 	{
@@ -89,10 +83,8 @@ int main(int argc, char **argv) {
 		//If bounding box is outside threshold, excise it from vector
 		if (ratio < .2 || ratio > .6)
 		{
-
 			it = mser_boundingbox.erase(it);
-			it2 = regions.erase(it2);
-			
+			it2 = regions.erase(it2);			
 		} 
 		else
 		{
@@ -104,89 +96,72 @@ int main(int argc, char **argv) {
 	//For each bounding box, extract image into a new MAT
 	for (int i = 0; i < mser_boundingbox.size(); i++)
 	{
+		int x_pos = mser_boundingbox[i].x;
+		int y_pos = mser_boundingbox[i].y;
+		int width = mser_boundingbox[i].width;
+		int height = mser_boundingbox[i].height;
+
+		if (x_pos - 5 >= 0)
+			x_pos -= 5;
+		if (y_pos - 5 >= 0)
+			y_pos -= 5;
+		if (x_pos + width + 10 < src.cols)
+		{
+			width += 10;
+		}
+		if (y_pos + height + 10 < src.rows)
+		{
+			height += 10;
+		}
 		license_characters.push_back(src
-		(Rect(mser_boundingbox[i].x,
-			mser_boundingbox[i].y,
-			mser_boundingbox[i].width,
-			mser_boundingbox[i].height)));
+		(Rect(x_pos,
+			y_pos,
+			width,
+			height)));
 	}
 
+	/*
 	//Draw extracted and thresholded bounding boxes onto image
 	for (int i = 0; i < regions.size(); i++)
 	{
 		rectangle(src, mser_boundingbox[i], CV_RGB(0, 255, 0));
 	}
+	*/
 
+	/*
+	for (int i = 0; i < license_characters.size(); i++)
+	{
+		string output = to_string(i);
+		output += ".jpg";
+		imwrite(output, license_characters[i]);
+	}
+	*/
 
 	//perform edge detection on extracted features
 	for (int i = 0; i < mser_boundingbox.size(); i++)
 	{
-		cvtColor(license_characters[i], license_characters[i], COLOR_BGR2GRAY);
-		GaussianBlur(license_characters[i], license_characters[i], Size(7, 7), 3.0);
-		Canny(license_characters[i], license_characters[i], 20, 60);
+		//cvtColor(license_characters[i], license_characters[i], COLOR_BGR2GRAY);
+		//GaussianBlur(license_characters[i], license_characters[i], Size(7, 7), 3.0);
+		//Canny(license_characters[i], license_characters[i], 20, 60);
+		string output = to_string(i);
+		imshow(output, license_characters[i]);
 	}
+	
 
-	//Create keypoints vector for each template image
-	vector<vector<KeyPoint>> template_keypoints_vector;
-	vector<KeyPoint> template_keypoints;
-
-	//Create a mats for descriptors of keypoints for each template image
-	Ptr<KAZE> kz = KAZE::create();
-	vector<Mat> template_descriptors_vector;
-	Mat template_descriptors;
-
-	//Iterate through templates to find keypoints for each image
-	for (int i = 0; i < template_vector.size(); i++)
-	{
-		kz->detectAndCompute(template_vector[i], noArray(), template_keypoints, template_descriptors);
-		template_keypoints_vector.push_back(template_keypoints);
-		template_descriptors_vector.push_back(template_descriptors);
-	}
-
-
-
-	//Create vector for extracted features
-	vector<vector<KeyPoint>> feature_keypoints_vector;
-	vector<KeyPoint> feature_keypoints;
+	//Perform keypoint extraction for each feature-template combination
+	//Create a vector of mats for descriptors of keypoints for each template image (one Mat per image)
+	vector<Mat> template_descriptors_vector = find_descriptors(template_vector);
 
 	//Create mats for descriptors of keypoints for each extracted feature
-	vector<Mat> feature_descriptors_vector;
-	Mat feature_descriptors;
+	vector<Mat> feature_descriptors_vector = find_descriptors(license_characters);
 
-	//Iterate through templates to find keypoints for each image
+	int best_match =0;
 	for (int i = 0; i < license_characters.size(); i++)
 	{
-		kz->detectAndCompute(license_characters[i], noArray(), feature_keypoints, feature_descriptors);
-		feature_keypoints_vector.push_back(feature_keypoints);
-		feature_descriptors_vector.push_back(feature_descriptors);
+		best_match = best_template_match(feature_descriptors_vector[i], template_descriptors_vector);
+		cout << "Best match: " << best_match << endl;
+		best_match = 0;
 	}
-
-	FlannBasedMatcher matcher;
-	vector<vector<vector<DMatch>>> all_matches;
-	vector<vector<DMatch>> match_vector;
-	vector< DMatch > matches;
-	double max_distance = 0;
-	double min_distance = 100;	
-
-	//compare templates to each extracted feature to see which matches best
-	for (int i = 0; i < license_characters.size(); i++)
-	{
-		for (int j = 0; j < template_vector.size(); j++)
-		{
-			matcher.match(feature_descriptors_vector[i], template_descriptors_vector[j], matches);
-			match_vector.push_back(matches);
-		}
-		for (int j = 0; j < template_vector.size(); j++)
-		{
-			for (int k = 0; k < feature_descriptors_vector[i].rows; k++)
-			{
-				double dist;
-			}
-		}
-		all_matches.push_back(match_vector);
-	}
-
-	
 
 	imshow("processed_image", morph);
 
@@ -200,6 +175,85 @@ int main(int argc, char **argv) {
 
 	return 0;
 
-
-
 }
+
+//Precondition: Need to have found keypoints for both images and have them stored in a vector.
+//template_vector_descriptors stores the descriptors for all templates. feature_descriptor stores
+//the descriptors for the current feature you are checking in original image.
+//Postcondition: Returns the index of the template that has the best match
+int best_template_match(Mat feature_descriptor, vector<Mat> template_vector_descriptors)
+{
+	FlannBasedMatcher matcher;
+	vector< DMatch > matches;
+	vector<vector<DMatch>> match_vector;
+	double average_dist;
+	double best_average = 100;
+	int index_of_best = 0;
+
+	for (int i = 0; i < template_vector_descriptors.size(); i++)
+	{
+		matcher.match(feature_descriptor, template_vector_descriptors[i], matches);
+		match_vector.push_back(matches);
+	}
+
+	for (int i = 0; i < template_vector_descriptors.size(); i++)
+	{
+		average_dist = 0;
+		for (int j = 0; j < match_vector[i].size(); j++)
+		{
+			average_dist += match_vector[i][j].distance;
+		}
+		average_dist /= match_vector[i].size();
+		
+
+		if (average_dist < best_average)
+		{
+			best_average = average_dist;
+			index_of_best = i;
+		}
+	}
+
+	return index_of_best;
+}
+
+//precondition: Must have an empty vector of Mats to store the descriptors for each image in the image vector
+//postcondition: Returns a vector of vectors containing of keypoints for all images in the image vector.
+vector<Mat> find_descriptors(vector<Mat> image_vector)
+{
+	Ptr<KAZE> kz = KAZE::create();
+	Mat template_descriptors;				//single template descriptors
+	vector<Mat> template_descriptors_vector;
+	vector<KeyPoint> template_keypoints;		//one templates keypoints
+	//vector<vector<KeyPoint>> template_keypoints_vector;	//all template keypoints
+
+	//Iterate through templates to find keypoints for each image
+	for (int i = 0; i < image_vector.size(); i++)
+	{
+		kz->detectAndCompute(image_vector[i], noArray(), template_keypoints, template_descriptors);
+		//template_keypoints_vector.push_back(template_keypoints);
+		template_descriptors_vector.push_back(template_descriptors);
+	}
+	return template_descriptors_vector;
+	//return template_keypoints_vector;
+}
+
+/*
+void draw_match()
+{
+	//-- Draw only "good" matches
+	Mat img_matches;
+	drawMatches(img_1, keypoints_1, img_2, keypoints_2,
+		good_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
+		vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+
+	//-- Show detected matches
+	imshow("Good Matches", img_matches);
+
+	for (int i = 0; i < (int)good_matches.size(); i++)
+	{
+		printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx);
+	}
+
+	waitKey(0);
+}
+*/
