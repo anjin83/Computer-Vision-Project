@@ -16,8 +16,50 @@ using namespace std;
 
 vector<Mat> find_descriptors(vector<Mat> image_vector);
 int best_template_match(Mat feature_descriptor, vector<Mat> template_vector_descriptors);
+const char *getTextForEnum(int enumVal);
+bool compare_rect(const Rect & a, const Rect & b);
 
 int main(int argc, char **argv) {
+
+	enum Plate_numbers 
+	{
+		A,
+		B,
+		C,
+		D,
+		E,
+		F,
+		G,
+		H,
+		I,
+		J,
+		K,
+		L,
+		M,
+		N,
+		O,
+		P,
+		Q,
+		R,
+		S,
+		T,
+		U,
+		V,
+		W,
+		X,
+		Y,
+		Z,
+		One,
+		Two,
+		Three,
+		Four,
+		Five,
+		Six,
+		Seven,
+		Eight,
+		Nine,
+		Zero
+	};
 
 	//Get image to parse as command line argument
 	CommandLineParser parser(argc, argv, "{help h||}{ @image | ../data/baboon.jpg | }");
@@ -38,8 +80,6 @@ int main(int argc, char **argv) {
 	//Get rid of alphas in image
 	Mat gray, thresh, smooth, morph;
 	cvtColor(src, src, COLOR_BGRA2BGR);
-
-	cout << "Number of input channels=" << src.channels();
 
 	//Create grayscale image and blur for feature
 	bilateralFilter(src, smooth, 9, 30, 30);
@@ -120,29 +160,10 @@ int main(int argc, char **argv) {
 			height)));
 	}
 
-	/*
-	//Draw extracted and thresholded bounding boxes onto image
-	for (int i = 0; i < regions.size(); i++)
-	{
-		rectangle(src, mser_boundingbox[i], CV_RGB(0, 255, 0));
-	}
-	*/
-
-	/*
-	for (int i = 0; i < license_characters.size(); i++)
-	{
-		string output = to_string(i);
-		output += ".jpg";
-		imwrite(output, license_characters[i]);
-	}
-	*/
 
 	//perform edge detection on extracted features
 	for (int i = 0; i < mser_boundingbox.size(); i++)
 	{
-		//cvtColor(license_characters[i], license_characters[i], COLOR_BGR2GRAY);
-		//GaussianBlur(license_characters[i], license_characters[i], Size(7, 7), 3.0);
-		//Canny(license_characters[i], license_characters[i], 20, 60);
 		string output = to_string(i);
 		imshow(output, license_characters[i]);
 	}
@@ -155,13 +176,49 @@ int main(int argc, char **argv) {
 	//Create mats for descriptors of keypoints for each extracted feature
 	vector<Mat> feature_descriptors_vector = find_descriptors(license_characters);
 
+	//Print out the characters of the license plate in the correct order
+	vector<const char *> characters;
 	int best_match =0;
 	for (int i = 0; i < license_characters.size(); i++)
 	{
 		best_match = best_template_match(feature_descriptors_vector[i], template_descriptors_vector);
-		cout << "Best match: " << best_match << endl;
+		const char * temp_plate_text = getTextForEnum(best_match);
+		characters.push_back(temp_plate_text);		
 		best_match = 0;
 	}
+
+	int largest_x = 0;
+	for (int i = 0; i < mser_boundingbox.size(); i++)
+	{
+		if (mser_boundingbox[i].x > largest_x) largest_x = mser_boundingbox[i].x;
+	}
+	int smallest_x = largest_x;
+	
+	int index = 0;
+	for (int i = 0; i < mser_boundingbox.size(); i++)
+	{
+		if (mser_boundingbox[i].x < smallest_x)
+		{
+			smallest_x = mser_boundingbox[i].x;
+			index = i;
+		}
+	}
+	cout << "License plate read: " << characters[index];
+
+	while (smallest_x < largest_x)
+	{
+		int next_smallest = largest_x;
+		for (int i = 0; i < mser_boundingbox.size(); i++)
+		{
+			if (mser_boundingbox[i].x > smallest_x && mser_boundingbox[i].x < next_smallest)
+			{
+				next_smallest = mser_boundingbox[i].x;
+				index = i;
+			}
+		}
+		cout << characters[index];
+		smallest_x = next_smallest;
+	} 
 
 	imshow("processed_image", morph);
 
@@ -201,7 +258,7 @@ int best_template_match(Mat feature_descriptor, vector<Mat> template_vector_desc
 		average_dist = 0;
 		for (int j = 0; j < match_vector[i].size(); j++)
 		{
-			average_dist += match_vector[i][j].distance;
+			average_dist += abs(match_vector[i][j].distance);
 		}
 		average_dist /= match_vector[i].size();
 		
@@ -237,23 +294,19 @@ vector<Mat> find_descriptors(vector<Mat> image_vector)
 	//return template_keypoints_vector;
 }
 
-/*
-void draw_match()
+const char* getTextForEnum(int enumVal)
 {
-	//-- Draw only "good" matches
-	Mat img_matches;
-	drawMatches(img_1, keypoints_1, img_2, keypoints_2,
-		good_matches, img_matches, Scalar::all(-1), Scalar::all(-1),
-		vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+	static const char *EnumStrings[] = {
+		"A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
+		"K", "L", "M", "N", "O", "P", "Q", "R", "S", "T",
+		"U", "V", "W", "X", "Y", "Z", "0", "1", "2", "3", 
+		"4", "5", "6", "7", "8", "9"
+	};
+	return EnumStrings[enumVal];
+}
 
-	//-- Show detected matches
-	imshow("Good Matches", img_matches);
-
-	for (int i = 0; i < (int)good_matches.size(); i++)
-	{
-		printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i, good_matches[i].queryIdx, good_matches[i].trainIdx);
-	}
-
-	waitKey(0);
+/*bool compare_rect(const Rect & a, const Rect & b)
+{
+	return a.x < b.x;
 }
 */
